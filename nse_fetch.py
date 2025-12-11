@@ -1,31 +1,43 @@
-# nse_fetch.py
 import requests
 import time
 from requests.exceptions import RequestException
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Accept-Language": "en-US,en;q=0.9"
+BASE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.nseindia.com/option-chain",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
 }
-NSE_INDEX_ENDPOINT = "https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
 
-def fetch_option_chain(symbol: str, retries=3, backoff=1.0):
-    url = NSE_INDEX_ENDPOINT.format(symbol=symbol)
-    sess = requests.Session()
-    sess.headers.update(HEADERS)
+NSE_URL = "https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
+
+def fetch_option_chain(symbol, retries=5):
+    url = NSE_URL.format(symbol=symbol)
+    session = requests.Session()
+    session.headers.update(BASE_HEADERS)
+
+    # Step 1: Get cookies from home page
     try:
-        # initial home to get cookies
-        sess.get("https://www.nseindia.com", timeout=5)
-    except Exception:
-        pass
-    last_exc = None
+        home = session.get("https://www.nseindia.com", timeout=7)
+        cookies = home.cookies.get_dict()
+        session.cookies.update(cookies)
+    except Exception as e:
+        print("Cookie fetch failed:", e)
+
+    last_error = None
     for i in range(retries):
         try:
             time.sleep(0.5)
-            r = sess.get(url, timeout=10)
-            r.raise_for_status()
-            return r.json()
-        except RequestException as e:
-            last_exc = e
-            time.sleep(backoff * (2 ** i))
-    raise RuntimeError(f"Failed fetching NSE option chain for {symbol}: {last_exc}")
+            res = session.get(url, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                if "records" in data and data["records"].get("data"):
+                    return data
+            last_error = f"Empty/invalid response (status {res.status_code})"
+        except Exception as e:
+            last_error = e
+        time.sleep(1.5)
+
+    raise RuntimeError(f"NSE fetch failed for {symbol}: {last_error}")
