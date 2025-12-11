@@ -5,9 +5,8 @@ permissions:
 
 on:
   schedule:
-    - cron: "*/1 3-12 * * 1-6"  # Every 1 min approx during IST market window
+    - cron: "*/1 * * * *"     # Runs every 1 minute
   workflow_dispatch:
-
 jobs:
   run:
     runs-on: ubuntu-latest
