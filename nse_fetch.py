@@ -1,78 +1,48 @@
 import requests
 import time
-import random
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.nseindia.com/",
+    "Connection": "keep-alive"
+}
 
-class NSEFetcher:
-    def __init__(self):
-        self.session = requests.Session()
-        self.max_retries = 5
-        self.base_url = "https://www.nseindia.com/api/option-chain-indices?symbol="
+BASE_URL = "https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
 
-        # Default headers (very important)
-        self.headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            ),
-            "Accept-Encoding": "gzip, deflate, br",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept": "*/*",
-            "Connection": "keep-alive",
-            "Referer": "https://www.nseindia.com/option-chain",
-        }
+def fetch_option_chain(symbol: str, retries=5, sleep=1.5):
+    """Fetch NSE Option Chain with cloud-friendly session handling."""
+    session = requests.Session()
+    session.headers.update(HEADERS)
 
-    def refresh_cookies(self):
-        """
-        NSE blocks requests without cookies.
-        This function gets fresh cookies using the homepage.
-        """
+    # Preload cookies
+    try:
+        session.get("https://www.nseindia.com", timeout=10)
+    except:
+        pass
+
+    url = BASE_URL.format(symbol=symbol)
+    last_error = None
+
+    for attempt in range(retries):
         try:
-            homepage = "https://www.nseindia.com/"
-            self.session.get(homepage, headers=self.headers, timeout=5)
-        except Exception:
-            pass  # ignore
+            time.sleep(sleep)
+            res = session.get(url, timeout=15)
 
-    def fetch(self, symbol: str):
-        """
-        Fetch NSE option chain with retries and fallback.
-        """
-        url = self.base_url + symbol.upper()
+            if res.status_code != 200:
+                last_error = f"Status {res.status_code}"
+                continue
 
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                # Try new cookies every attempt
-                self.refresh_cookies()
+            if len(res.text) < 50:
+                last_error = f"Empty response (len={len(res.text)})"
+                continue
 
-                response = self.session.get(
-                    url,
-                    headers=self.headers,
-                    timeout=7
-                )
+            return res.json()
 
-                # Cloud servers often show status 200 but empty response
-                if response.status_code == 200 and len(response.text) > 200:
-                    return response.json()
+        except Exception as e:
+            last_error = str(e)
+            time.sleep(2)
 
-                print(
-                    f"[Attempt {attempt}] Invalid/empty response — "
-                    f"Len={len(response.text)}"
-                )
-
-            except Exception as e:
-                print(f"[Attempt {attempt}] Error: {e}")
-
-            # Random delay: avoids block
-            time.sleep(random.uniform(1.2, 2.4))
-
-        raise Exception(
-            f"Failed fetching NSE Option Chain for {symbol} after {self.max_retries} retries"
-        )
-
-
-# RUN DIRECTLY (optional test)
-if __name__ == "__main__":
-    nse = NSEFetcher()
-    data = nse.fetch("BANKNIFTY")
-    print("SUCCESS ✓")
-    print("Keys:", data.keys())
+    raise RuntimeError(f"NSE fetch failed for {symbol}: {last_error}")
