@@ -6,58 +6,69 @@ from telegram import Bot
 from nse_fetch import fetch_option_chain
 from analyzer import build_report
 
-# Setup
+# Timezone set karein
 IST = pytz.timezone("Asia/Kolkata")
 TOKEN = os.getenv("TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 bot = Bot(token=TOKEN)
 
-async def send_msg(text):
-    await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode='Markdown')
+async def send_debug_msg(text):
+    """Telegram par message bhejne ka function"""
+    try:
+        await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode='Markdown')
+    except Exception as e:
+        print(f"Telegram Error: {e}")
 
 async def main():
     now = datetime.now(IST)
+    print(f"--- Bot Execution Started at {now} ---")
     
-    # Market Hours Check (9:15 AM to 3:30 PM)
-    # Testing ke liye aap ise abhi comment out kar sakte hain
-    if now.weekday() >= 5: # Saturday/Sunday
-        print("Market is Closed today.")
-        return
+    # STEP 1: Telegram check
+    await send_debug_msg(f"🔍 *Bot Scan Start:* {now.strftime('%H:%M:%S')}")
 
     try:
-        # 1. Data Fetch karein
+        # STEP 2: NSE Data fetching check
+        print("Fetching NSE Data...")
         data = fetch_option_chain("NIFTY")
-        if not data: return
+        
+        if not data:
+            await send_debug_msg("❌ *Error:* NSE se data nahi mila (Block ya Network issue).")
+            return
+        
+        print("NSE Data received successfully.")
+        await send_debug_msg("✅ *NSE Data:* Mil gaya hai.")
 
-        # 2. LTP Analysis (COA 1.0 & 2.0)
-        report = build_report(data, "NIFTY", data['records']['underlyingValue'], 50000, "STANDARD")
-
-        # 3. Message Format (Dr. Vinay ji ke style mein)
+        # STEP 3: Analyzer Logic check
+        print("Analyzing Data...")
+        spot = data.get('records', {}).get('underlyingValue', 0)
+        report = build_report(data, "NIFTY", spot, 50000, "STANDARD")
+        
+        print(f"Analysis Complete. Bias: {report['bias']}")
+        
+        # STEP 4: Full Report bhejna (Neutral ho tab bhi)
         msg = (
-            f"📊 *LTP CALCULATOR REPORT: {report['symbol']}*\n"
+            f"📊 *LTP REPORT: {report['symbol']}*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"📍 *Spot:* {report['spot']}\n"
             f"🛡️ *Support:* {report['support']}\n"
             f"🚧 *Resistance:* {report['resistance']}\n"
             f"📈 *Scenario:* {report['scenario']}\n"
-            f"🌀 *COA 2.0:* {report['coa_2']}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🎯 *Bias:* {report['bias']}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
         )
         
         if report['bias'] != "NEUTRAL":
-            msg += (
-                f"✅ *Entry:* {report['entry']}\n"
-                f"🛑 *SL:* {report['sl']}\n"
-                f"🏁 *Target:* {report['target']}\n"
-                f"💎 *Trade:* {report['trade_strike']}"
-            )
-        
-        await send_msg(msg)
-        print("Report sent to Telegram!")
+            msg += f"✅ *Trade Level:* {report['entry']}\n"
+        else:
+            msg += "⚠️ *Status:* Market Neutral hai, koi trade nahi."
+
+        await send_debug_msg(msg)
+        print("Full report sent to Telegram.")
 
     except Exception as e:
-        print(f"Error: {e}")
+        error_msg = f"❗ *Crash Error:* {str(e)}"
+        print(error_msg)
+        await send_debug_msg(error_msg)
 
 if __name__ == "__main__":
     asyncio.run(main())
